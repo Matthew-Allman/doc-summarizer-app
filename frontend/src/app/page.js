@@ -4,9 +4,13 @@ import { useEffect, useState } from "react";
 import { FaCloudUploadAlt } from "react-icons/fa";
 
 import { useGlobalContext } from "./authContext";
+import backendAPI from "@/api/backendInstance";
+import RenderSummary from "./RenderSummary";
 
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import mammoth from "mammoth";
+
+import ClockLoader from "react-spinners/ClockLoader";
 
 GlobalWorkerOptions.workerSrc =
   "https://unpkg.com/pdfjs-dist@2.10.377/build/pdf.worker.min.js";
@@ -19,6 +23,13 @@ export default function Home() {
     x: 0,
     y: 0,
   });
+
+  const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [activeTab, setActiveTab] = useState(false);
+
+  const { userInfo } = useGlobalContext();
+  const { userID } = userInfo;
 
   const formatFileSize = (bytes) => {
     if (bytes === 0) return "0 KB";
@@ -43,9 +54,11 @@ export default function Home() {
   const handleFileChange = (event) => {
     const selectedFile = event.target.files[0];
 
-    if (selectedFile) {
+    if (selectedFile && selectedFile.size <= 10000000) {
       generateThumbnail(selectedFile);
       setFile(selectedFile);
+    } else if (selectedFile.size > 10000000) {
+      alert("Unable to upload file (max size is 10MB)");
     }
   };
 
@@ -56,11 +69,18 @@ export default function Home() {
 
     const allowedExtensions = /(\.pdf|\.docx|\.txt)$/i;
 
-    if (allowedExtensions.test(droppedFile?.name)) {
+    if (
+      allowedExtensions.test(droppedFile?.name) &&
+      droppedFile.size <= 10000000
+    ) {
       generateThumbnail(droppedFile);
       setFile(droppedFile);
     } else {
-      alert("Please upload a file with a .pdf, .docx, or .txt extension.");
+      if (droppedFile.size > 10000000) {
+        alert("Unable to upload file (max size is 10MB)");
+      } else {
+        alert("Please upload a file with a .pdf, .docx, or .txt extension.");
+      }
     }
   };
 
@@ -129,6 +149,7 @@ export default function Home() {
     setFile(null);
     setThumbnail(null);
     setContextMenuVisible(false);
+    setSummary(false);
   };
 
   const closeContextMenu = () => {
@@ -151,6 +172,32 @@ export default function Home() {
 
       URL.revokeObjectURL(url);
     }
+  };
+
+  const handleSummarize = async () => {
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+
+      formData.append("file", file);
+      formData.append("userID", userID);
+
+      const response = await backendAPI.post("/summarize", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+
+      setSummary(response?.data?.summary);
+
+      alert("File summarized successfully!");
+    } catch (error) {
+      console.error("Error summarizing file:", error);
+      alert("Failed to summarize the file. Please try again.");
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -201,14 +248,35 @@ export default function Home() {
                 {formatDate(file.lastModified)}
               </p>
               <p className="text-[15px] leading-tight">
-                <span className=" font-medium">Summarized:</span> False
+                <span className=" font-medium">Summarized:</span>{" "}
+                {summary.length > 0 ? "True" : "False"}
               </p>
             </div>
           </div>
           <div className="flex-1 h-full flex flex-col items-end justify-center gap-y-4">
-            <button className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium">
-              Summarize
-            </button>
+            {loading && (
+              <span className="w-[200px] h-[50px] rounded-md bg-blue text-white font-medium flex items-center justify-center">
+                <ClockLoader size={35} color="#fff" />
+              </span>
+            )}
+
+            {summary && (
+              <button
+                onClick={() => setActiveTab(!activeTab)}
+                className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium"
+              >
+                View Summary
+              </button>
+            )}
+
+            {!loading && !summary && (
+              <button
+                onClick={handleSummarize}
+                className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium"
+              >
+                Summarize
+              </button>
+            )}
             <button
               onClick={handleDownload}
               className="px-3 h-[50px] rounded-md border-2 border-blue text-black hover:bg-gray-200 transition duration-300 font-medium"
@@ -232,7 +300,9 @@ export default function Home() {
           <div className="w-[100px] h-[100px] rounded-full bg-[#ADD8E6] flex items-center justify-center">
             <FaCloudUploadAlt size={40} className="text-white" />
           </div>
-          <p className="mt-2 text-gray-600">Click or Drag to Upload</p>
+          <p className="mt-2 text-gray-600">
+            Click or Drag to Upload (Max 10MB)
+          </p>
         </label>
       )}
       {contextMenuVisible && (
@@ -247,6 +317,15 @@ export default function Home() {
             Delete file
           </button>
         </div>
+      )}
+
+      {activeTab && (
+        <RenderSummary
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          summary={summary}
+          handleDeleteFile={handleDeleteFile}
+        />
       )}
     </main>
   );

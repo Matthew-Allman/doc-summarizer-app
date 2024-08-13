@@ -1,7 +1,10 @@
 const express = require("express");
 const cors = require("cors");
-const bodyParser = require("body-parser");
 const session = require("express-session");
+
+const bodyParser = require("body-parser");
+const cookieParser = require("cookie-parser");
+
 const mongoose = require("mongoose");
 
 const dotenv = require("dotenv");
@@ -13,24 +16,20 @@ dotenv.config();
 const middleware = {
   testFunction: function (req, res, next) {
     let condition =
-      typeof req.headers.origin === "string"
+      typeof req?.headers?.origin === "string"
         ? req.headers.origin.includes(process.env.FRONTEND_URL)
         : false;
 
+    // Allow postman requests for testing (remove for production)
+    //
     if (req.headers["postman-token"]) {
       condition = true;
     }
 
-    const token = req.cookies["auth_token"] || "";
-
-    const originURL = req.originalUrl;
-    const condition2 = originURL == "/summarize" ? Boolean(token) : true;
-
-    if (condition && condition2) {
+    if (condition) {
       next();
     } else {
-      res.send({
-        status: 403,
+      res.status(403).json({
         data: "You do not have the correct permissions to use this route.",
       });
     }
@@ -62,7 +61,7 @@ app.use(
 // Use a middle ware for security
 //
 app.use(middleware.testFunction);
-
+app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(
   session({
@@ -76,8 +75,11 @@ app.use(
 app.set("json spaces", 3);
 process.on("warning", (e) => console.warn(e.stack));
 
-// const summarization = require("");
-// app.use("/summarize", summarization);
+const auth = require("./routes/auth");
+app.use("/auth", auth);
+
+const summarization = require("./routes/summarize");
+app.use("/summarize", summarization);
 
 // Start the server on the specified port
 //

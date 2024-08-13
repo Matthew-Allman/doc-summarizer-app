@@ -1,6 +1,77 @@
 const router = require("express").Router();
-const UserData = require("../models/userDataModel");
+const File = require("../models/fileModel");
+const { extractTextFromUploadedFile } = require("../functions/extractText");
+const multer = require("multer");
+const AWS = require("aws-sdk");
+const pyBackendAPI = require("../api/pyInstance");
 
-router.route("/").post(async (req, res) => {});
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
+
+router.route("/").post(upload.single("file"), async (req, res) => {
+  try {
+    const file = req.file;
+    const userID = req.body.userID;
+
+    if (userID) {
+      const allowedExtensions = /(\.pdf|\.docx|\.txt)$/i;
+
+      if (allowedExtensions.test(file.originalname)) {
+        const response = await extractTextFromUploadedFile(file);
+
+        if (response) {
+          const result = await pyBackendAPI.post("/", { text: response });
+          const summary = result?.data?.summary || "";
+
+          if (summary) {
+            res.status(200).json({ summary });
+
+            const s3Params = {
+              Bucket: process.env.AWS_S3_BUCKET_NAME,
+              Key: `${userID}/${Date.now()}_${file.originalname}`,
+              Body: file.buffer,
+              ContentType: file.mimetype,
+            };
+
+            const s3Response = await s3.upload(s3Params).promise();
+
+            if (s3Response && s3Response.Location) {
+              const newFile = new File({
+                userID: userID,
+                fileName: s3Params.Key,
+                originalName: file.originalname,
+                fileUrl: s3Response.Location,
+                summarizedText: summary,
+              });
+
+              await newFile.save();
+            }
+          } else {
+            res.status(500).json({ error: "Failed to generate summary." });
+          }
+        } else {
+          res.status(500).json({ error: "Failed to extract text from file." });
+        }
+      } else {
+        res.status(403).json({
+          error: "File format must be PDF, DOCX, or TXT.",
+        });
+      }
+    } else {
+      res.status(403).json({
+        error: "You do not have the correct permissions to use this route.",
+      });
+    }
+  } catch (e) {
+    console.log(e);
+    res.status(500).json({ error: "Internal server error." });
+  }
+});
 
 module.exports = router;
