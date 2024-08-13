@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { FaCloudUploadAlt } from "react-icons/fa";
 
 import { useGlobalContext } from "./authContext";
@@ -16,8 +16,7 @@ GlobalWorkerOptions.workerSrc =
   "https://unpkg.com/pdfjs-dist@2.10.377/build/pdf.worker.min.js";
 
 export default function Home() {
-  const [file, setFile] = useState(null);
-  const [thumbnail, setThumbnail] = useState(null);
+  const [files, setFiles] = useState([]);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({
     x: 0,
@@ -27,6 +26,9 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState("");
   const [activeTab, setActiveTab] = useState(false);
+  const [activeFile, setActiveFile] = useState({});
+
+  const fileInputRef = useRef(null);
 
   const { userInfo } = useGlobalContext();
   const { userID } = userInfo;
@@ -51,15 +53,38 @@ export default function Home() {
     return new Date(date).toLocaleDateString("en-US", options);
   };
 
-  const handleFileChange = (event) => {
-    const selectedFile = event.target.files[0];
+  const handleFileChange = async (event) => {
+    const selectedFiles = Array.from(event.target.files);
 
-    if (selectedFile && selectedFile.size <= 10000000) {
-      generateThumbnail(selectedFile);
-      setFile(selectedFile);
-    } else if (selectedFile.size > 10000000) {
-      alert("Unable to upload file (max size is 10MB)");
+    if (Array.isArray(selectedFiles)) {
+      const newFiles = [];
+
+      for (const file of selectedFiles) {
+        if (
+          file.size <= 10000000 &&
+          files.every((item) => item.name != file.name)
+        ) {
+          file.thumbnail = await generateThumbnail(file);
+
+          newFiles.push(file);
+        } else {
+          if (file.size > 10000000) {
+            alert("File too large: " + file.name);
+          } else {
+            alert(file.name + " is already added.");
+          }
+        }
+      }
+
+      setFiles((prevFiles) => [...prevFiles, ...newFiles]);
     }
+
+    // if (selectedFile && selectedFile.size <= 10000000) {
+    //   generateThumbnail(selectedFile);
+    //   setFile(selectedFile);
+    // } else if (selectedFile.size > 10000000) {
+    //   alert("Unable to upload file (max size is 10MB)");
+    // }
   };
 
   const handleDrop = (event) => {
@@ -115,45 +140,50 @@ export default function Home() {
           viewport: viewport,
         }).promise;
 
-        setThumbnail(canvas.toDataURL());
+        return canvas.toDataURL();
       } else if (file?.name?.endsWith(".docx")) {
         const arrayBuffer = await file.arrayBuffer();
         const result = await mammoth.convertToHtml({ arrayBuffer });
         const html = `<div style="${defaultStyles}">${result.value}</div>`;
 
-        setThumbnail({ html });
+        return { html };
       } else if (file?.type === "text/plain" || file?.name?.endsWith(".txt")) {
         const reader = new FileReader();
         reader.onload = () => {
           const text = reader.result;
           const html = `<div style="${defaultStyles}"><p>${text}</p></div>`;
 
-          setThumbnail({ html });
+          return { html };
         };
         reader.readAsText(file);
       } else {
-        setThumbnail(null);
+        // setThumbnail(null);
+        return null;
       }
     } catch (e) {
       alert("Something went wrong while parsing your file.");
     }
   };
 
-  const handleRightClick = (event) => {
+  const handleRightClick = (event, file) => {
     event.preventDefault();
-    setContextMenuPosition({ x: event.clientX, y: event.clientY });
+
+    setActiveFile(file);
+
+    setContextMenuPosition({ x: event.pageX, y: event.pageY });
     setContextMenuVisible(true);
   };
 
   const handleDeleteFile = async () => {
-    setFile(null);
-    setThumbnail(null);
     setContextMenuVisible(false);
     setSummary("");
 
+    const index = files.findIndex((item) => item.name == activeFile.name);
+    files.splice(index, 1);
+
     try {
-      if (file.key) {
-        await backendAPI.post("/delete-file", { userID, key: file.key });
+      if (activeFile.key) {
+        await backendAPI.post("/delete-file", { userID, key: activeFile.key });
         alert("File deleted");
       }
     } catch (e) {
@@ -161,13 +191,15 @@ export default function Home() {
 
       alert("Could not delete file.");
     }
+
+    setActiveFile({});
   };
 
   const closeContextMenu = () => {
     setContextMenuVisible(false);
   };
 
-  const handleDownload = () => {
+  const handleDownload = (file) => {
     if (file) {
       const url = URL.createObjectURL(file);
       const a = document.createElement("a");
@@ -185,8 +217,9 @@ export default function Home() {
     }
   };
 
-  const handleSummarize = async () => {
+  const handleSummarize = async (file, index) => {
     setLoading(true);
+    setActiveFile(file);
 
     try {
       const formData = new FormData();
@@ -200,9 +233,10 @@ export default function Home() {
         },
       });
 
+      file.summarizedText = response.data.summary;
       file.key = response.data.s3BucketKey;
 
-      setSummary(response?.data?.summary);
+      files.splice(index, 1, file);
 
       alert("File summarized successfully!");
     } catch (error) {
@@ -212,95 +246,132 @@ export default function Home() {
     setLoading(false);
   };
 
+  const handleFileInputClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    } else {
+      console.log("nah");
+    }
+  };
+
   useEffect(() => {
-    console.log(file);
-  }, [file]);
+    console.log(files);
+  }, [files]);
 
   return (
     <main
-      className="flex h-screen flex-col items-center justify-center p-24 gap-y-8"
+      className="flex min-h-screen flex-col items-center justify-center p-24 gap-y-8"
       onDrop={handleDrop}
       onDragOver={(event) => event.preventDefault()}
       onClick={closeContextMenu}
     >
       <div className="w-full h-auto flex items-center justify-center flex-col gap-y-1">
         <h1 className="text-[30px] font-semibold text-gray-700 capitalize">
-          {file
+          {files.length > 0
             ? "Great! Now you can start summarizing"
             : "Get Started by Uploading a Document"}
         </h1>
         <h4 className="text-[20px] font-medium text-gray-600 lg:w-[50%] text-center leading-tight">
-          {file
+          {files.length > 0
             ? 'Now, click the "Summarize" button to get an AI-generated summary of your file. Right click a row to delete that file.'
             : "Drag and drop a file or click to browse your computer. Supported file types are PDF, DOCX, and TXT."}
         </h4>
       </div>
-      {file ? (
-        <div
-          className="mt-2 w-full lg:w-[70%] h-auto rounded-lg border-2 border-gray-400 bg-white drop-shadow-xl flex flex-row items-start justify-between p-3"
-          onContextMenu={handleRightClick}
-        >
-          <div className="flex-[1.5] h-full flex flex-row items-start justify-start gap-x-4">
-            {!thumbnail?.html && (
-              <img src={thumbnail} alt="Thumbnail" className="w-auto h-auto" />
-            )}
-            {thumbnail?.html && (
-              <div dangerouslySetInnerHTML={{ __html: thumbnail.html }}></div>
-            )}
-            <div className="w-auto h-full flex flex-col items-start justify-start gap-y-3 pt-1">
-              <p className="text-[18px] leading-tight font-medium">
-                {file.name}
-              </p>
-              <p className="text-[15px] leading-tight">
-                <span className=" font-medium">Size:</span>{" "}
-                {formatFileSize(file.size)}
-              </p>
-              <p className="text-[15px] leading-tight">
-                <span className=" font-medium">Last Modified:</span>{" "}
-                {formatDate(file.lastModified)}
-              </p>
-              <p className="text-[15px] leading-tight">
-                <span className=" font-medium">Summarized:</span>{" "}
-                {summary.length > 0 ? "True" : "False"}
-              </p>
-            </div>
-          </div>
-          <div className="flex-1 h-full flex flex-col items-end justify-center gap-y-4">
-            {loading && (
-              <span className="w-[200px] h-[50px] rounded-md bg-blue text-white font-medium flex items-center justify-center">
-                <ClockLoader size={35} color="#fff" />
-              </span>
-            )}
-
-            {summary && (
-              <button
-                onClick={() => setActiveTab(!activeTab)}
-                className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium"
-              >
-                View Summary
-              </button>
-            )}
-
-            {!loading && !summary && (
-              <button
-                onClick={handleSummarize}
-                className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium"
-              >
-                Summarize
-              </button>
-            )}
-            <button
-              onClick={handleDownload}
-              className="px-3 h-[50px] rounded-md border-2 border-blue text-black hover:bg-gray-200 transition duration-300 font-medium"
+      {files.length > 0 ? (
+        <div className=" w-full h-auto flex flex-col items-center justify-center gap-y-4">
+          {files.map((file, index) => (
+            <div
+              key={index}
+              className="mt-2 w-full lg:w-[70%] h-auto rounded-lg border-2 border-gray-400 bg-white drop-shadow-xl flex flex-row items-center justify-between p-3 hover:drop-shadow-2xl transition duration-300"
+              onContextMenu={(e) => handleRightClick(e, file)}
             >
-              Download
-            </button>
-          </div>
+              <div className="flex-[1.5] h-full flex flex-row items-start justify-start gap-x-4">
+                {!file.thumbnail?.html && (
+                  <img
+                    src={file.thumbnail}
+                    alt="Thumbnail"
+                    className="w-auto h-auto"
+                  />
+                )}
+                {file.thumbnail?.html && (
+                  <div
+                    dangerouslySetInnerHTML={{ __html: file.thumbnail.html }}
+                  ></div>
+                )}
+                <div className="w-auto h-full flex flex-col items-start justify-start gap-y-3 pt-1">
+                  <p className="text-[18px] leading-tight font-medium">
+                    {file.name}
+                  </p>
+                  <p className="text-[15px] leading-tight">
+                    <span className=" font-medium">Size:</span>{" "}
+                    {formatFileSize(file.size)}
+                  </p>
+                  <p className="text-[15px] leading-tight">
+                    <span className=" font-medium">Last Modified:</span>{" "}
+                    {formatDate(file.lastModified)}
+                  </p>
+                  <p className="text-[15px] leading-tight">
+                    <span className=" font-medium">Summarized:</span>{" "}
+                    {file.summarizedText ? "True" : "False"}
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 h-full flex flex-col items-end justify-center gap-y-4">
+                {loading && activeFile.name == file.name ? (
+                  <span className="w-[200px] h-[50px] rounded-md bg-deepBlue text-white font-medium flex items-center justify-center">
+                    <ClockLoader size={35} color="#fff" />
+                  </span>
+                ) : (
+                  loading &&
+                  !file.summarizedText && (
+                    <span className="w-[200px] h-[50px] rounded-md bg-deepBlue text-white font-medium flex items-center justify-center">
+                      Waiting...
+                    </span>
+                  )
+                )}
+
+                {file.summarizedText && (
+                  <button
+                    onClick={() => {
+                      setActiveFile(file);
+                      setActiveTab(true);
+                    }}
+                    className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium"
+                  >
+                    View Summary
+                  </button>
+                )}
+
+                {!loading && !file.summarizedText && (
+                  <button
+                    onClick={() => handleSummarize(file, index)}
+                    className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium"
+                  >
+                    Summarize
+                  </button>
+                )}
+
+                <button
+                  onClick={() => handleDownload(file)}
+                  className="px-3 h-[50px] rounded-md border-2 border-blue text-black hover:bg-gray-200 transition duration-300 font-medium"
+                >
+                  Download
+                </button>
+              </div>
+            </div>
+          ))}
+
+          <button
+            onClick={handleFileInputClick}
+            className="w-[200px] h-[50px] rounded-md bg-blue text-white font-medium hover:bg-deepBlue transition duration-300 mt-4"
+          >
+            Upload More Files
+          </button>
         </div>
       ) : (
         <label
           htmlFor="file-upload"
-          className="mx-auto lg:w-[50%] w-[90%] lg:h-[80%] h-full bg-white rounded-md drop-shadow-lg hover:drop-shadow-2xl transition duration-300 cursor-pointer flex flex-col items-center justify-center"
+          className="mx-auto lg:w-[50%] w-[90%] lg:h-[450px] h-full bg-white rounded-md drop-shadow-lg hover:drop-shadow-2xl transition duration-300 cursor-pointer flex flex-col items-center justify-center"
         >
           <input
             onChange={handleFileChange}
@@ -308,19 +379,33 @@ export default function Home() {
             type="file"
             accept=".pdf,.docx,.txt"
             className="hidden"
+            multiple={true}
           />
           <div className="w-[100px] h-[100px] rounded-full bg-[#ADD8E6] flex items-center justify-center">
             <FaCloudUploadAlt size={40} className="text-white" />
           </div>
           <p className="mt-2 text-gray-600">
-            Click or Drag to Upload (Max 10MB)
+            Click or Drag to Upload (Max 10MB each)
           </p>
         </label>
       )}
+
+      <input
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        type="file"
+        accept=".pdf,.docx,.txt"
+        className="hidden"
+        multiple={true}
+      />
+
       {contextMenuVisible && (
         <div
-          style={{ top: contextMenuPosition.y, left: contextMenuPosition.x }}
-          className="fixed bg-white shadow-lg rounded-md p-2 z-50"
+          style={{
+            top: contextMenuPosition.y,
+            left: contextMenuPosition.x,
+          }}
+          className="absolute bg-white shadow-lg rounded-md p-2 z-50"
         >
           <button
             onClick={handleDeleteFile}
@@ -335,7 +420,7 @@ export default function Home() {
         <RenderSummary
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          summary={summary}
+          file={activeFile}
           handleDeleteFile={handleDeleteFile}
         />
       )}

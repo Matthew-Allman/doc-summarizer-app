@@ -17,8 +17,8 @@ router.route("/").post(async (req, res) => {
   };
 
   try {
-    const result = await File.findOneAndDelete({ userID, fileName: key });
-    const data = await s3.deleteObject(params).promise();
+    await File.findOneAndDelete({ userID, fileName: key });
+    await s3.deleteObject(params).promise();
 
     res.sendStatus(200);
   } catch (err) {

@@ -1,12 +1,7 @@
 import React from "react";
 import { IoClose } from "react-icons/io5";
 
-const RenderSummary = ({
-  setActiveTab,
-  activeTab,
-  summary,
-  handleDeleteFile,
-}) => {
+const RenderSummary = ({ setActiveTab, activeTab, file, handleDeleteFile }) => {
   return (
     <section
       className={`${
@@ -34,7 +29,7 @@ const RenderSummary = ({
 
             <div className="p-6 w-full overflow-auto scroll-container h-auto">
               <p className="text-[15px] font-normal text-darkestGray text-left">
-                {summary}
+                {file.summarizedText}
               </p>
             </div>
             <span className="w-full flex items-start justify-start pl-6">

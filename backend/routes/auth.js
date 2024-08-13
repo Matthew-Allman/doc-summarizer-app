@@ -1,6 +1,16 @@
-const User = require("../models/userModel");
-const crypto = require("crypto");
 const router = require("express").Router();
+const crypto = require("crypto");
+
+const User = require("../models/userModel");
+const File = require("../models/fileModel");
+
+const AWS = require("aws-sdk");
+
+const s3 = new AWS.S3({
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+});
 
 router.route("/").get(async (req, res) => {
   const token = req?.cookies?.["auth_token"] || "";
@@ -20,9 +30,38 @@ router.route("/").get(async (req, res) => {
     } else {
       userDoc = await User.findOne({ token });
 
-      // Do stuff here to get files and summarized texts then return the data
+      const userID = userDoc.userID;
 
-      res.send({ loggedIn: true, userInfo: { userID: userDoc.userID } });
+      const userFiles = await File.find({ userID });
+
+      const params = {
+        Bucket: process.env.AWS_S3_BUCKET_NAME,
+        Prefix: userID,
+      };
+
+      const data = await s3.listObjectsV2(params).promise();
+
+      const files = userFiles.map((file) => {
+        const s3File = data.Contents.find(
+          (s3Item) => s3Item.Key === file.fileName
+        );
+
+        return {
+          key: s3File?.Key || "",
+          lastModified: s3File?.LastModified || "",
+          size: s3File?.Size || "",
+          name: file.originalName || "",
+          uri: file.fileUrl || "",
+          summarizedText: file.summarizedText,
+        };
+      });
+
+      console.log(files);
+
+      res.send({
+        loggedIn: true,
+        userInfo: { userID: userDoc.userID, files },
+      });
     }
   } catch (error) {
     console.error("Error handling request:", error);
