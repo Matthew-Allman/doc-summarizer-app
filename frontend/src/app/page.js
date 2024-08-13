@@ -1,113 +1,253 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { FaCloudUploadAlt } from "react-icons/fa";
+
+import { useGlobalContext } from "./authContext";
+
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
+import mammoth from "mammoth";
+
+GlobalWorkerOptions.workerSrc =
+  "https://unpkg.com/pdfjs-dist@2.10.377/build/pdf.worker.min.js";
 
 export default function Home() {
+  const [file, setFile] = useState(null);
+  const [thumbnail, setThumbnail] = useState(null);
+  const [contextMenuVisible, setContextMenuVisible] = useState(false);
+  const [contextMenuPosition, setContextMenuPosition] = useState({
+    x: 0,
+    y: 0,
+  });
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return "0 KB";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
+  };
+
+  const formatDate = (date) => {
+    const options = {
+      weekday: "short",
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    };
+    return new Date(date).toLocaleDateString("en-US", options);
+  };
+
+  const handleFileChange = (event) => {
+    const selectedFile = event.target.files[0];
+
+    if (selectedFile) {
+      generateThumbnail(selectedFile);
+      setFile(selectedFile);
+    }
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+
+    const droppedFile = event.dataTransfer.files[0];
+
+    const allowedExtensions = /(\.pdf|\.docx|\.txt)$/i;
+
+    if (allowedExtensions.test(droppedFile?.name)) {
+      generateThumbnail(droppedFile);
+      setFile(droppedFile);
+    } else {
+      alert("Please upload a file with a .pdf, .docx, or .txt extension.");
+    }
+  };
+
+  const generateThumbnail = async (file) => {
+    try {
+      const defaultStyles = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 150px;
+        height: 200px;
+        background-color: #f0f0f0;
+        border: 1px solid #ddd;
+        overflow: hidden;
+        padding: 10px;
+        text-align: center;
+      `;
+
+      if (file?.type === "application/pdf") {
+        const pdf = await getDocument(URL.createObjectURL(file)).promise;
+        const page = await pdf.getPage(1);
+
+        const viewport = page.getViewport({ scale: 0.2 });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        await page.render({
+          canvasContext: context,
+          viewport: viewport,
+        }).promise;
+
+        setThumbnail(canvas.toDataURL());
+      } else if (file?.name?.endsWith(".docx")) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        const html = `<div style="${defaultStyles}">${result.value}</div>`;
+
+        setThumbnail({ html });
+      } else if (file?.type === "text/plain" || file?.name?.endsWith(".txt")) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = reader.result;
+          const html = `<div style="${defaultStyles}"><p>${text}</p></div>`;
+
+          setThumbnail({ html });
+        };
+        reader.readAsText(file);
+      } else {
+        setThumbnail(null);
+      }
+    } catch (e) {
+      alert("Something went wrong while parsing your file.");
+    }
+  };
+
+  const handleRightClick = (event) => {
+    event.preventDefault();
+    setContextMenuPosition({ x: event.clientX, y: event.clientY });
+    setContextMenuVisible(true);
+  };
+
+  const handleDeleteFile = () => {
+    setFile(null);
+    setThumbnail(null);
+    setContextMenuVisible(false);
+  };
+
+  const closeContextMenu = () => {
+    setContextMenuVisible(false);
+  };
+
+  const handleDownload = () => {
+    if (file) {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = file.name;
+
+      document.body.appendChild(a);
+
+      a.click();
+
+      document.body.removeChild(a);
+
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  useEffect(() => {
+    console.log(file);
+  }, [file]);
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">src/app/page.js</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:h-auto lg:w-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
+    <main
+      className="flex h-screen flex-col items-center justify-center p-24 gap-y-8"
+      onDrop={handleDrop}
+      onDragOver={(event) => event.preventDefault()}
+      onClick={closeContextMenu} // Close context menu when clicking anywhere else
+    >
+      <div className="w-full h-auto flex items-center justify-center flex-col gap-y-1">
+        <h1 className="text-[30px] font-semibold text-gray-700 capitalize">
+          {file
+            ? "Great! Now you can start summarizing"
+            : "Get Started by Uploading a Document"}
+        </h1>
+        <h4 className="text-[20px] font-medium text-gray-600 lg:w-[50%] text-center leading-tight">
+          {file
+            ? 'Now, click the "Summarize" button to get an AI-generated summary of your file. Right click a row to delete that file.'
+            : "Drag and drop a file or click to browse your computer. Supported file types are PDF, DOCX, and TXT."}
+        </h4>
+      </div>
+      {file ? (
+        <div
+          className="mt-2 w-full lg:w-[70%] h-auto rounded-lg border-2 border-gray-400 bg-white drop-shadow-xl flex flex-row items-start justify-between p-3"
+          onContextMenu={handleRightClick}
+        >
+          <div className="flex-[1.5] h-full flex flex-row items-start justify-start gap-x-4">
+            {!thumbnail?.html && (
+              <img src={thumbnail} alt="Thumbnail" className="w-auto h-auto" />
+            )}
+            {thumbnail?.html && (
+              <div dangerouslySetInnerHTML={{ __html: thumbnail.html }}></div>
+            )}
+            <div className="w-auto h-full flex flex-col items-start justify-start gap-y-3 pt-1">
+              <p className="text-[18px] leading-tight font-medium">
+                {file.name}
+              </p>
+              <p className="text-[15px] leading-tight">
+                <span className=" font-medium">Size:</span>{" "}
+                {formatFileSize(file.size)}
+              </p>
+              <p className="text-[15px] leading-tight">
+                <span className=" font-medium">Last Modified:</span>{" "}
+                {formatDate(file.lastModified)}
+              </p>
+              <p className="text-[15px] leading-tight">
+                <span className=" font-medium">Summarized:</span> False
+              </p>
+            </div>
+          </div>
+          <div className="flex-1 h-full flex flex-col items-end justify-center gap-y-4">
+            <button className="w-[200px] h-[50px] rounded-md bg-blue hover:bg-deepBlue transition duration-300 text-white font-medium">
+              Summarize
+            </button>
+            <button
+              onClick={handleDownload}
+              className="px-3 h-[50px] rounded-md border-2 border-blue text-black hover:bg-gray-200 transition duration-300 font-medium"
+            >
+              Download
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="relative flex place-items-center before:absolute before:h-[300px] before:w-full sm:before:w-[480px] before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full sm:after:w-[240px] after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 before:lg:h-[360px] z-[-1]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className="mb-32 grid text-center lg:max-w-5xl lg:w-full lg:mb-0 lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
+      ) : (
+        <label
+          htmlFor="file-upload"
+          className="mx-auto lg:w-[50%] w-[90%] lg:h-[80%] h-full bg-white rounded-md drop-shadow-lg hover:drop-shadow-2xl transition duration-300 cursor-pointer flex flex-col items-center justify-center"
         >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800 hover:dark:bg-opacity-30"
-          target="_blank"
-          rel="noopener noreferrer"
+          <input
+            onChange={handleFileChange}
+            id="file-upload"
+            type="file"
+            accept=".pdf,.docx,.txt"
+            className="hidden"
+          />
+          <div className="w-[100px] h-[100px] rounded-full bg-[#ADD8E6] flex items-center justify-center">
+            <FaCloudUploadAlt size={40} className="text-white" />
+          </div>
+          <p className="mt-2 text-gray-600">Click or Drag to Upload</p>
+        </label>
+      )}
+      {contextMenuVisible && (
+        <div
+          style={{ top: contextMenuPosition.y, left: contextMenuPosition.x }}
+          className="fixed bg-white shadow-lg rounded-md p-2 z-50"
         >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50`}>
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className={`mb-3 text-2xl font-semibold`}>
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className={`m-0 max-w-[30ch] text-sm opacity-50 text-balance`}>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
+          <button
+            onClick={handleDeleteFile}
+            className="text-red-500 hover:bg-red-100 px-4 py-2 rounded-md"
+          >
+            Delete file
+          </button>
+        </div>
+      )}
     </main>
   );
 }
