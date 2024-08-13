@@ -81,6 +81,9 @@ app.use("/auth", auth);
 const summarization = require("./routes/summarize");
 app.use("/summarize", summarization);
 
+const deleteFile = require("./routes/deleteFile");
+app.use("/delete-file", deleteFile);
+
 // Start the server on the specified port
 //
 app.listen(process.env.PORT, () => {

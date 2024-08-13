@@ -30,8 +30,6 @@ router.route("/").post(upload.single("file"), async (req, res) => {
           const summary = result?.data?.summary || "";
 
           if (summary) {
-            res.status(200).json({ summary });
-
             const s3Params = {
               Bucket: process.env.AWS_S3_BUCKET_NAME,
               Key: `${userID}/${Date.now()}_${file.originalname}`,
@@ -51,6 +49,18 @@ router.route("/").post(upload.single("file"), async (req, res) => {
               });
 
               await newFile.save();
+
+              const obj = {
+                successMessage: "File saved successfully.",
+                s3BucketKey: s3Params.Key,
+                summary,
+              };
+
+              res.send(obj);
+            } else {
+              const obj = { errMessage: "Could not save file to S3 bucket." };
+
+              res.status(500).json(obj);
             }
           } else {
             res.status(500).json({ error: "Failed to generate summary." });
@@ -70,7 +80,6 @@ router.route("/").post(upload.single("file"), async (req, res) => {
     }
   } catch (e) {
     console.log(e);
-    res.status(500).json({ error: "Internal server error." });
   }
 });
 

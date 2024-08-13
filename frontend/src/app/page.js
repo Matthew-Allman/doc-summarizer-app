@@ -145,11 +145,22 @@ export default function Home() {
     setContextMenuVisible(true);
   };
 
-  const handleDeleteFile = () => {
+  const handleDeleteFile = async () => {
     setFile(null);
     setThumbnail(null);
     setContextMenuVisible(false);
-    setSummary(false);
+    setSummary("");
+
+    try {
+      if (file.key) {
+        await backendAPI.post("/delete-file", { userID, key: file.key });
+        alert("File deleted");
+      }
+    } catch (e) {
+      console.log(e);
+
+      alert("Could not delete file.");
+    }
   };
 
   const closeContextMenu = () => {
@@ -189,11 +200,12 @@ export default function Home() {
         },
       });
 
+      file.key = response.data.s3BucketKey;
+
       setSummary(response?.data?.summary);
 
       alert("File summarized successfully!");
     } catch (error) {
-      console.error("Error summarizing file:", error);
       alert("Failed to summarize the file. Please try again.");
     }
 
@@ -209,7 +221,7 @@ export default function Home() {
       className="flex h-screen flex-col items-center justify-center p-24 gap-y-8"
       onDrop={handleDrop}
       onDragOver={(event) => event.preventDefault()}
-      onClick={closeContextMenu} // Close context menu when clicking anywhere else
+      onClick={closeContextMenu}
     >
       <div className="w-full h-auto flex items-center justify-center flex-col gap-y-1">
         <h1 className="text-[30px] font-semibold text-gray-700 capitalize">
