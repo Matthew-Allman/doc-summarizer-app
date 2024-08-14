@@ -16,7 +16,6 @@ GlobalWorkerOptions.workerSrc =
   "https://unpkg.com/pdfjs-dist@2.10.377/build/pdf.worker.min.js";
 
 export default function Home() {
-  const [files, setFiles] = useState([]);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({
     x: 0,
@@ -30,7 +29,7 @@ export default function Home() {
 
   const fileInputRef = useRef(null);
 
-  const { userInfo } = useGlobalContext();
+  const { userInfo, files, setFiles } = useGlobalContext();
   const { userID } = userInfo;
 
   const formatFileSize = (bytes) => {
@@ -78,34 +77,39 @@ export default function Home() {
 
       setFiles((prevFiles) => [...prevFiles, ...newFiles]);
     }
-
-    // if (selectedFile && selectedFile.size <= 10000000) {
-    //   generateThumbnail(selectedFile);
-    //   setFile(selectedFile);
-    // } else if (selectedFile.size > 10000000) {
-    //   alert("Unable to upload file (max size is 10MB)");
-    // }
   };
 
-  const handleDrop = (event) => {
+  const handleDrop = async (event) => {
     event.preventDefault();
 
-    const droppedFile = event.dataTransfer.files[0];
+    const droppedFile = Array.from(event.dataTransfer.files);
 
     const allowedExtensions = /(\.pdf|\.docx|\.txt)$/i;
 
-    if (
-      allowedExtensions.test(droppedFile?.name) &&
-      droppedFile.size <= 10000000
-    ) {
-      generateThumbnail(droppedFile);
-      setFile(droppedFile);
-    } else {
-      if (droppedFile.size > 10000000) {
-        alert("Unable to upload file (max size is 10MB)");
-      } else {
-        alert("Please upload a file with a .pdf, .docx, or .txt extension.");
+    if (Array.isArray(droppedFile)) {
+      const newFiles = [];
+
+      for (const file of droppedFile) {
+        if (
+          file.size <= 10000000 &&
+          files.every((item) => item.name != file.name) &&
+          allowedExtensions.test(file.name)
+        ) {
+          file.thumbnail = await generateThumbnail(file);
+
+          newFiles.push(file);
+        } else {
+          if (file.size > 10000000) {
+            alert("File too large: " + file.name);
+          } else if (!allowedExtensions.test(file.name)) {
+            alert("Allowed file extensions are PDF, DOCX, TXT");
+          } else {
+            alert(file.name + " is already added.");
+          }
+        }
       }
+
+      setFiles((prevFiles) => [...prevFiles, ...newFiles]);
     }
   };
 
@@ -161,7 +165,63 @@ export default function Home() {
         return null;
       }
     } catch (e) {
-      alert("Something went wrong while parsing your file.");
+      alert("Something went wrong while parsing your files.");
+    }
+  };
+
+  const generateThumbnailFromURI = async (fileUri) => {
+    try {
+      const defaultStyles = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 150px;
+        height: 200px;
+        background-color: #f0f0f0;
+        border: 1px solid #ddd;
+        overflow: hidden;
+        padding: 10px;
+        text-align: center;
+      `;
+
+      // Fetch the file from the URI
+      const response = await fetch(fileUri);
+      const blob = await response.blob();
+      const file = new File([blob], "file", { type: blob.type });
+
+      if (file?.type === "application/pdf") {
+        const pdf = await getDocument(URL.createObjectURL(file)).promise;
+        const page = await pdf.getPage(1);
+
+        const viewport = page.getViewport({ scale: 0.2 });
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        await page.render({
+          canvasContext: context,
+          viewport: viewport,
+        }).promise;
+
+        return canvas.toDataURL();
+      } else if (file?.name?.endsWith(".docx")) {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer });
+        const html = `<div style="${defaultStyles}">${result.value}</div>`;
+
+        return { html };
+      } else if (file?.type === "text/plain" || file?.name?.endsWith(".txt")) {
+        const text = await blob.text();
+        const html = `<div style="${defaultStyles}"><p>${text}</p></div>`;
+
+        return { html };
+      } else {
+        return null;
+      }
+    } catch (e) {
+      // alert("Something went wrong while parsing your file.");
     }
   };
 
@@ -201,7 +261,7 @@ export default function Home() {
 
   const handleDownload = (file) => {
     if (file) {
-      const url = URL.createObjectURL(file);
+      const url = file?.uri || URL.createObjectURL(file);
       const a = document.createElement("a");
 
       a.href = url;
@@ -254,8 +314,25 @@ export default function Home() {
     }
   };
 
+  const getThumbnails = async () => {
+    const newFiles = [];
+
+    for (const file of files) {
+      if (file.thumbnail) {
+      } else {
+        file.thumbnail = await generateThumbnailFromURI(file.uri);
+      }
+
+      newFiles.push(file);
+    }
+
+    setFiles(newFiles);
+  };
+
   useEffect(() => {
-    console.log(files);
+    if (files.length > 0 && files.some((item) => !item.thumbnail)) {
+      getThumbnails();
+    }
   }, [files]);
 
   return (

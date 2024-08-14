@@ -28,7 +28,7 @@ const AppProvider = ({ children }) => {
 
   useEffect(() => {
     if (Object.values(userInfo).length > 0) {
-      setFiles(userInfo.files || []);
+      setFiles(userInfo?.files || []);
     }
   }, [userInfo]);
 

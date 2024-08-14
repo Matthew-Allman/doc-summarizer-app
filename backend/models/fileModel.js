@@ -7,6 +7,7 @@ const fileSchema = new mongoose.Schema({
   fileUrl: { type: String, required: true },
   summarizedText: { type: String, required: true },
   uploadDate: { type: Date, default: Date.now },
+  size: { type: Number, required: true },
 });
 
 module.exports = mongoose.model("File", fileSchema);

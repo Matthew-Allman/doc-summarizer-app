@@ -48,7 +48,7 @@ const RenderSummary = ({ setActiveTab, activeTab, file, handleDeleteFile }) => {
 
                   handleDeleteFile();
                 }}
-                className="text-white text-[12px] lg:text-[14px] font-semibold bg-blue hover:bg-deepBlue hover:transition duration-300 p-3 rounded-md"
+                className="text-white text-[12px] lg:text-[14px] font-semibold bg-red-500 hover:bg-red-600 hover:transition duration-300 p-3 rounded-md"
               >
                 Delete File
               </button>

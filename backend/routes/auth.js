@@ -33,30 +33,45 @@ router.route("/").get(async (req, res) => {
       const userID = userDoc.userID;
 
       const userFiles = await File.find({ userID });
+      const files = [];
 
-      const params = {
-        Bucket: process.env.AWS_S3_BUCKET_NAME,
-        Prefix: userID,
-      };
+      if (userFiles.length > 0) {
+        for (const file of userFiles) {
+          const params = {
+            Bucket: process.env.AWS_S3_BUCKET_NAME,
+            Key: file.fileName,
+            Expires: 60 * 60,
+          };
 
-      const data = await s3.listObjectsV2(params).promise();
+          const uri = s3.getSignedUrl("getObject", params);
 
-      const files = userFiles.map((file) => {
-        const s3File = data.Contents.find(
-          (s3Item) => s3Item.Key === file.fileName
-        );
+          files.push({
+            key: file?.fileName || "",
+            lastModified: file?.uploadDate || "",
+            size: file?.size || "",
+            name: file.originalName || "",
+            uri: uri || "",
+            summarizedText: file.summarizedText,
+          });
+        }
+      }
 
-        return {
-          key: s3File?.Key || "",
-          lastModified: s3File?.LastModified || "",
-          size: s3File?.Size || "",
-          name: file.originalName || "",
-          uri: file.fileUrl || "",
-          summarizedText: file.summarizedText,
-        };
-      });
+      // const files = userFiles.map((file) => {
+      //   const s3File = data.Contents.find(
+      //     (s3Item) => s3Item.Key === file.fileName
+      //   );
 
-      console.log(files);
+      //   return {
+      //     key: s3File?.Key || "",
+      //     lastModified: s3File?.LastModified || "",
+      //     size: s3File?.Size || "",
+      //     name: file.originalName || "",
+      //     uri: file.fileUrl || "",
+      //     summarizedText: file.summarizedText,
+      //   };
+      // });
+
+      // console.log(files);
 
       res.send({
         loggedIn: true,

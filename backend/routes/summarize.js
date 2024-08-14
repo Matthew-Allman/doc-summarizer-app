@@ -46,6 +46,7 @@ router.route("/").post(upload.single("file"), async (req, res) => {
                 originalName: file.originalname,
                 fileUrl: s3Response.Location,
                 summarizedText: summary,
+                size: file.size,
               });
 
               await newFile.save();
